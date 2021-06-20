@@ -41,6 +41,17 @@ import lime.lime_tabular
 # 导入其他模型包
 import xgboost as xgb
 
+class tool_functions(object):
+    # start_column_num, end_column_num are numbers of corresponding columns (1-based, start&end included)
+    def columns_rename(self, column_names, start_column_num, end_column_num, suffix):
+        # directly rename corresponding column names
+        for i in range(start_column_num-1, end_column_num):
+            column_names[i] = [suffix, str(i - start_column_num + 1)].join("_")
+    # rename_info_dict is a dict whose key was suffix and values were other info
+    def batch_columns_rename(self, column_names, rename_info_dict):
+        for suffix in rename_info_dict.keys:
+            start_column_num, end_column_num = rename_info_dict[suffix]
+            self.columns_rename(column_names, start_column_num, end_column_num)
 
 
 # 新建训练数据预处理类
@@ -61,6 +72,7 @@ class train_data_construct(object):
     def data_prepare(self):
         # 对训练数据进行整理，重新构建列名
         old_columns = self.train_info.columns
+        new_columns = list(self.train_info.columns)
         # start rename with index 6
         # * 8-14: number of accounts. 
         # * 15-35: transaction status. (16-19 **null** values detected)
@@ -71,7 +83,22 @@ class train_data_construct(object):
         # * 179-282: third-party transaction status. (**all null** values detected)
         # * 283-314: self-service device transaction status. (**all 0** values detected)
         # * 331-338: other signatures. (**all 0** values detected)
-        
+        rename_info_dict = {
+            "accounts_num": [8, 14], 
+            "transaction_status": [15, 35], 
+            "asset_status": [36, 48], 
+            "loan_status": [49, 58], 
+            "channel_trans_status_a": [59, 166], 
+            "channel_behavior": [167, 178], 
+            "third_trans_status": [179, 282], 
+            "self_service_trans_status": [283, 314], 
+            "channel_trans_status_b": [315, 330], 
+            "other_sigs": [331, 338]
+        }
+        tool_functions.batch_columns_rename(new_columns, rename_info_dict)
+
+        # 
+
 
         # 重新编制index信息
         self.gdc_info_SNP.reset_index(drop=True, inplace=True)
