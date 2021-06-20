@@ -5,7 +5,7 @@ This contest provided *customer behavior, property status and business historic 
 # Data Content
 
 We provided *train.csv* and *test.csv* as two data files. 
-P.S. Provided data undergoed desensitization treatment, **null** represented missing value. 
+P.S. Provided data undergoed **desensitization treatment**, **null** represented missing value. 
 
 ## Train.csv (feature+label)
 
@@ -20,13 +20,13 @@ P.S. Provided data undergoed desensitization treatment, **null** represented mis
 We had 339 variables in total. Of which (take **first** record to demonstrate status)
 
 * cust_id: unique **ID** to define customers. 
-* flag: unique **label** to indentify buying status.
+* flag: unique **label** to indentify buying status. (0-1)
 * 3-7: fundamental properties for customers.
-    * sex: 2
-    * marriage_satatus: -1
-    * age: 0
-    * occupation: 23
-    * educate: null
+    * sex: 2 (-1, 1, 2, 3, 4; 1&2 were major)
+    * marriage_satatus: -1 (-1, 1, 2, 3, 4, 6, 7, 8; -1&1&2&8 were major)
+    * age: 0 (-7811 to 2021; 0 to 106 were major)
+    * occupation: 23 (-1 to 86; -1 to 20 were major)
+    * educate: null (-1 to 8)
 * 8-14: number of accounts. 
 * 15-35: transaction status. (16-19 **null** values detected)
 * 36-48: asset status. 
@@ -37,3 +37,5 @@ We had 339 variables in total. Of which (take **first** record to demonstrate st
 * 283-314: self-service device transaction status. (**all 0** values detected)
 * 331-338: other signatures. (**all 0** values detected)
 * 339(settime): buying time, formatted as "202103"
+
+P.S. Be advised, *test.csv* lacks *flag* column info. 
