@@ -1,6 +1,3 @@
-### 2021.02.04更新
-### 更新点在于，去除了通过突变功能注释来筛选位于exon内突变的步骤 ###
-
 # 导入相关需求包
 # 基础包
 import os
@@ -43,15 +40,17 @@ import xgboost as xgb
 
 class tool_functions(object):
     # start_column_num, end_column_num are numbers of corresponding columns (1-based, start&end included)
-    def columns_rename(self, column_names, start_column_num, end_column_num, suffix):
+    def columns_rename(column_names, start_column_num, end_column_num, suffix):
         # directly rename corresponding column names
         for i in range(start_column_num-1, end_column_num):
-            column_names[i] = [suffix, str(i - start_column_num + 1)].join("_")
+            column_names[i] = "_".join([suffix, str(i - start_column_num + 1)])
     # rename_info_dict is a dict whose key was suffix and values were other info
-    def batch_columns_rename(self, column_names, rename_info_dict):
-        for suffix in rename_info_dict.keys:
+    def batch_columns_rename(column_names, rename_info_dict):
+        for suffix in rename_info_dict.keys():
             start_column_num, end_column_num = rename_info_dict[suffix]
-            self.columns_rename(column_names, start_column_num, end_column_num)
+            # start_column_num, end_column_num are numbers of corresponding columns (1-based, start&end included)
+            for i in range(start_column_num-1, end_column_num):
+                column_names[i] = "_".join([suffix, str(i - start_column_num + 1)])
 
 
 # 新建训练数据预处理类
@@ -68,8 +67,8 @@ class train_data_construct(object):
         print(self.train_info["flag"].value_counts())
 
     # 输入：实例自带的train_info
-    # 输出：实例新建的train_info_rename，为重新构建列名 + 添加分类信息对应哑变量的训练数据
-    def data_prepare(self):
+    # 输出：实例新建的train_info，为重新构建列名后的训练数据
+    def data_rename(self):
         # 对训练数据进行整理，重新构建列名
         old_columns = self.train_info.columns
         new_columns = list(self.train_info.columns)
@@ -96,43 +95,11 @@ class train_data_construct(object):
             "other_sigs": [331, 338]
         }
         tool_functions.batch_columns_rename(new_columns, rename_info_dict)
+        self.train_info.columns = new_columns
 
-        # 
-
-
-        # 重新编制index信息
-        self.gdc_info_SNP.reset_index(drop=True, inplace=True)
-        # 添加“Tumor_Sample_UUID”列，使之与LUAD的RNA体细胞突变信息保持一致
-        del self.gdc_info_SNP['Tumor_Sample_UUID']
-        self.gdc_info_SNP["Tumor_Sample_UUID"] = pd.Series(["-".join(GDC_sample_info.split("-")[0:3]) for GDC_sample_info in
-             self.gdc_info_SNP["Tumor_Sample_Barcode"]])
-        # 仅选取染色体、碱基信息和case_id信息，便于GDC相关信息和待处理所有突变信息进行合并和分离
-        self.gdc_info_SNP = self.gdc_info_SNP.loc[:,["Chromosome", "Start_Position", "Tumor_Seq_Allele1", "Tumor_Seq_Allele2",
-                                        "Tumor_Sample_UUID"]]
-        # 重新命名，便于进行信息合并(注意在Funcotator的注释信息中，Tumor_Allele1对应突变碱基、Tumor_Allele2对应参考碱基)
-        self.gdc_info_SNP.columns = ["Chromosome", "Start_Position", "Tumor_Allele2", "Tumor_Allele1",
-                                                "Tumor_Sample_UUID"]
-        # 去除GDC数据集中重复的突变，避免重复合并
-        print("GDC项目中原有%d个体细胞突变" % (len(self.gdc_info_SNP)))
-        print("开始去重.......................")
-        self.gdc_info_SNP = self.gdc_info_SNP.drop_duplicates(keep="first")
-        print("经过去重后剩余%d个突变" % (len(self.gdc_info_SNP)))
-
-    # 输入：实例自带的all_info，实例新建的gdc_info_SNP
-    # 输出：实例新建的TP_info、TN_info，分别为构建模型的TP、TN训练数据
-    def TP_TN_construct(self):
-        print("所有突变的dataframe数据集中共有%d个突变，开始进行TP、TN数据集构建\n" % (len(self.all_info)))
-        # 直接将所有突变的dataframe数据集和GDC数据库癌症项目突变集求交集，即为TP
-        self.TP_info = pd.merge(self.all_info, self.gdc_info_SNP, on=list(self.gdc_info_SNP.columns))
-        print("TP训练集（%d个突变）构建完成，其组成信息为：" % (len(self.TP_info)))
-        print(self.TP_info.Variant_Classification.value_counts())
-
-        # 所有突变的dataframe数据集中不位于GDC数据库中的所有突变，即为TN
-        # 取差集(从all_info中过滤all_info在gdc_info_SNP中存在的行)：
-        temp_info = self.all_info.append(self.gdc_info_SNP)
-        self.TN_info = temp_info.drop_duplicates(subset=self.gdc_info_SNP.columns, keep=False)
-        print("\nTN训练集（%d个突变）构建完成，其组成信息为：" % (len(self.TN_info)))
-        print(self.TN_info.Variant_Classification.value_counts())
+    # 输入：实例自带的train_info
+    # 输出：实例自带的train_info，为添加分类信息对应哑变量后的训练数据
+    def data_
 
     # 构建迭代随机森林来完成对TN的筛选，尽可能将TP和TN的决策边界分离，避免决策边界不清的情况出现
     # 输入：实例新建的TP_info、TN_info，分别为构建模型的TP、TN训练数据
