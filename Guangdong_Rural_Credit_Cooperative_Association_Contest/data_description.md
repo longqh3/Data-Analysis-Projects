@@ -30,6 +30,7 @@ We had 339 variables in total. Of which (take **first** record to demonstrate st
 * flag: unique **label** to indentify buying status. (0-1)
 * 3-7: fundamental properties for customers.
     * sex: 2 (-1, 1, 2, 3, 4; 1&2 were major), **765219** rows contained values (5 classes)
+        * We chose to merge other categories into 0. 
     * marriage_satatus: -1 (-1, 1, 2, 3, 4, 6, 7, 8; -1&1&2&8 were major), **765219** rows contained values (8 classes)
     * age: 0 (-7811 to 2021; 0 to 106 were major), **784000** rows contained values (229 classes)
     * occupation: 23 (-1 to 86; -1 to 20 were major), **764632** rows contained values (87 classes)

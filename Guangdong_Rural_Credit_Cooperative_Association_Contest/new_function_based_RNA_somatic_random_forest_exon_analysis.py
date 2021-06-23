@@ -9,6 +9,7 @@ import pandas as pd     #导入python的一个数据分析包pandas
 from sklearn import decomposition    #导入数据降维包decomposition，以便后面导入PCA包
 from sklearn.ensemble import RandomForestClassifier  # 导入随机森林算法
 from imblearn.ensemble import BalancedRandomForestClassifier # 导入平衡随机森林算法
+import xgboost as xgb # 导入xgboost库
 ## 模型相关包——数据预处理
 from sklearn import preprocessing  # 导入数据预处理包
 from sklearn.model_selection import train_test_split  # 导入训练集和测试集划分函数tain_test_split
@@ -51,6 +52,13 @@ class tool_functions(object):
             # start_column_num, end_column_num are numbers of corresponding columns (1-based, start&end included)
             for i in range(start_column_num-1, end_column_num):
                 column_names[i] = "_".join([suffix, str(i - start_column_num + 1)])
+    # 检查不同信息对应大类中各个变量的value_counts分类情况
+    def info_class_features_split_check(train_info, class_suffix):
+        class_column_names = [col for col in train_info.columns if col.startswith(class_suffix)]
+        print(f"训练数据共有{len(train_info)}行，其中：")
+        for single_class_column_name in class_column_names:
+            single_value_counts_info = train_info[single_class_column_name].value_counts()
+            print(f"{single_class_column_name}列对应值分类数目为{len(single_value_counts_info)}，有值的行数为{single_value_counts_info.sum()}")
 
 
 # 新建训练数据预处理类
@@ -99,7 +107,30 @@ class train_data_construct(object):
 
     # 输入：实例自带的train_info
     # 输出：实例自带的train_info，为添加分类信息对应哑变量后的训练数据
-    def data_
+    def data_encode(self):
+        ## 将相应列（疑似为分类变量）转为one-hot变量，并纳入模型中进行判别
+        ### 获取碱基改变情况信息
+        TP_info_allele_change = self.TP_info['Reference_Allele'] + '>' + self.TP_info['Tumor_Allele1']
+        #### 2021.5.16——修改突变碱基改变信息
+        TP_info_allele_change = pd.Series([ALLELE_CHANGE_DICT[allele_change] if ALLELE_CHANGE_DICT.keys().__contains__(allele_change) else allele_change for allele_change in TP_info_allele_change])
+
+        self.enc = preprocessing.OneHotEncoder()  # 尝试将碱基改变情况转为one-hot变量，并纳入模型中进行判别
+        self.enc.fit(TP_info_allele_change.values.reshape(-1, 1))  # 根据TP中碱基改变情况分布，构建one-hot变量
+
+        ## 训练数据合并
+        ### 分别为TP和TN添加属性列
+        self.TN_info['Attribute'] = "TN"
+        self.TP_info['Attribute'] = "TP"
+        ### 将TP、TN合并（注意此时已经将index重置）
+        self.all_info = self.TP_info.append(self.TN_info, ignore_index=True)
+        ### 2020.11.30 考虑添加碱基改变信息后，再构建模型判断效果改善与否
+        all_info_allele_change = self.all_info['Reference_Allele'] + '>' + self.all_info['Tumor_Allele1']
+        #### 2021.5.16——修改突变碱基改变信息
+        all_info_allele_change = pd.Series([ALLELE_CHANGE_DICT[allele_change] if ALLELE_CHANGE_DICT.keys().__contains__(allele_change) else allele_change for allele_change in all_info_allele_change])
+
+        all_info_allele_change_df = pd.DataFrame(self.enc.transform(all_info_allele_change.values.reshape(-1, 1)).toarray(), columns=self.enc.categories_[0])
+        self.all_info = pd.concat([self.all_info, all_info_allele_change_df], axis=1)
+
 
     # 构建迭代随机森林来完成对TN的筛选，尽可能将TP和TN的决策边界分离，避免决策边界不清的情况出现
     # 输入：实例新建的TP_info、TN_info，分别为构建模型的TP、TN训练数据
@@ -648,118 +679,6 @@ class exon_RNA_alaysis(object):
             len(self.independent_info), len(self.test_positive_ROC_thre_2),
             len(self.independent_info) / len(self.test_positive_ROC_thre_2)))
 
-class tool_set(object):
-    # 以下三个函数好像完全没有保留的价值了= =佛了，我为啥老写无效代码
-    # 对位点集进行分离，分别为给定突变集中与GDC不符的部分和匹配的部分
-    # 输入：mutations_info、gdc_unmatched_info，分别为突变位点数据集、经过GDC数据库验证的突变数据集
-    # 输出：mutations_info_gdc_unmatched, mutations_info_gdc_matched，分别为预突变位点数据集中与GDC不符的部分和匹配的部分
-    def gdc_split(self, mutations_info, gdc_unmatched_info):
-        print("预测为阳性的突变集总数目为%d" % (len(mutations_info)))
-
-        # 将gdc_unmatched_info中的单个records解析为dataframe形式保存
-        def split_record(record):
-            alt = record.split('>')[1]
-            ref = record.split('>')[0][-1]
-            chro = record.split(':')[0][0:3].lower() + record.split(':')[0][3:]
-            loc = record.split(':')[1].split('.')[1].split('>')[0][:-1]
-            return ([chro, loc, ref, alt])
-
-        gdc_unmatched_info_splitted = pd.DataFrame([split_record(single_record) for single_record in gdc_unmatched_info['submitted']], columns = ["Chromosome", "Start_Position", "Reference_Allele", "Tumor_Allele1"])
-        gdc_unmatched_info_splitted.Start_Position = gdc_unmatched_info_splitted.Start_Position.astype("int64") # 列格式转换
-
-        print("给定突变集中，经GDC数据库认定为unmatched的突变集数目为%d" % (len(gdc_unmatched_info_splitted)))
-
-        # print("positive_info的对应类型为：",
-        #       [type(positive_info[col][4]) for col in positive_info.columns])
-        # print("gdc_unmatched_info_splitted的对应类型为：", [type(gdc_unmatched_info_splitted[col][1]) for col in gdc_unmatched_info_splitted.columns])
-
-        # 取交集，获取预测阳性位点中不位于gdc数据库中的所有位点信息，注意需要进一步去重（gdc_unmatched_info_splitted中存在重复信息）
-        mutations_info_gdc_unmatched = pd.merge(mutations_info, gdc_unmatched_info_splitted, on=list(gdc_unmatched_info_splitted.columns), how='right')
-        mutations_info_gdc_unmatched.drop_duplicates(subset=None, keep='first', inplace=True)
-        print("给定突变集中，不位于gdc数据库中的位点数目为%d" % (len(mutations_info_gdc_unmatched)))
-        # 取差集(从positive_info中过滤positive_info在gdc_unmatched_info_splitted中存在的行)，获取预测阳性位点中位于gdc数据库中的所有位点信息：
-        temp_info = mutations_info.append(mutations_info_gdc_unmatched, ignore_index=True)
-        mutations_info_gdc_matched = temp_info.drop_duplicates(keep=False)
-        print("预测为阳性的位点中，位于gdc数据库中的位点数目为%d" % (len(mutations_info_gdc_matched)))
-
-        return((mutations_info_gdc_unmatched, mutations_info_gdc_matched))
-
-    # 分析precision低的原因
-    # 对预测为阳性的位点集进行分离，分别为预测阳性突变集中与GDC不符的部分和匹配的部分
-    # 输入：positive_info、gdc_unmatched_info，分别为判别为阳性的独立测试数据集、经过GDC数据库验证的突变数据集
-    # 输出：positive_info_gdc_unmatched, positive_info_gdc_matched，分别为预测阳性突变集中与GDC不符的部分和匹配的部分
-    def positive_gdc_split(self, positive_info, gdc_unmatched_info):
-        print("预测为阳性的突变集总数目为%d" % (len(positive_info)))
-
-        # 将gdc_unmatched_info中的单个records解析为dataframe形式保存
-        def split_record(record):
-            alt = record.split('>')[1]
-            ref = record.split('>')[0][-1]
-            chro = record.split(':')[0][0:3].lower() + record.split(':')[0][3:]
-            loc = record.split(':')[1].split('.')[1].split('>')[0][:-1]
-            return ([chro, loc, ref, alt])
-
-        gdc_unmatched_info_splitted = pd.DataFrame([split_record(single_record) for single_record in gdc_unmatched_info['submitted']], columns = ["Chromosome", "Start_Position", "Reference_Allele", "Tumor_Allele1"])
-        gdc_unmatched_info_splitted.Start_Position = gdc_unmatched_info_splitted.Start_Position.astype("int64") # 列格式转换
-
-        print("预测阳性位点中，经GDC数据库认定为unmatched的突变集数目为%d" % (len(gdc_unmatched_info_splitted)))
-
-        # print("positive_info的对应类型为：",
-        #       [type(positive_info[col][4]) for col in positive_info.columns])
-        # print("gdc_unmatched_info_splitted的对应类型为：", [type(gdc_unmatched_info_splitted[col][1]) for col in gdc_unmatched_info_splitted.columns])
-
-        # 取交集，获取预测阳性位点中不位于gdc数据库中的所有位点信息，注意需要进一步去重（gdc_unmatched_info_splitted中存在重复信息）
-        positive_info_gdc_unmatched = pd.merge(positive_info, gdc_unmatched_info_splitted, on=list(gdc_unmatched_info_splitted.columns), how='right')
-        positive_info_gdc_unmatched.drop_duplicates(subset=None, keep='first', inplace=True)
-        print("预测为阳性的位点中，不位于gdc数据库中的位点数目为%d" % (len(positive_info_gdc_unmatched)))
-        # 取差集(从positive_info中过滤positive_info在gdc_unmatched_info_splitted中存在的行)，获取预测阳性位点中位于gdc数据库中的所有位点信息：
-        temp_info = positive_info.append(positive_info_gdc_unmatched, ignore_index=True)
-        positive_info_gdc_matched = temp_info.drop_duplicates(keep=False)
-        print("预测为阳性的位点中，位于gdc数据库中的位点数目为%d" % (len(positive_info_gdc_matched)))
-
-        return((positive_info_gdc_unmatched, positive_info_gdc_matched))
-
-    # 分析recall低的原因
-    # 对所有突变集中通过GDC数据库验证的部分突变进行分析，排除掉其中被预测为positive的突变集，保留未被预测为positive的GDC验证突变集
-    # 输入：independent_info、independent_info_gdc_matched、positive_info，分别为独立验证集、独立验证集中经过GDC验证的部分、判别为阳性的独立验证数据集
-    # 输出：negative_info_gdc_matched、negative_info_gdc_unmatched，为预测为阴性的独立验证集中经过GDC验证的部分和未通过验证的部分
-    def negative_gdc_split(self, independent_info, independent_info_gdc_matched, positive_info):
-        # temp_info = independent_info.append(positive_info[independent_info.columns])
-        # negative_info = temp_info.drop_duplicates(keep=False)
-        # 重新设定index
-        independent_info.reset_index(drop=True, inplace=True)
-        negative_info = independent_info[~independent_info.index.isin(positive_info.index)]
-
-        print("预测为阴性的突变集总数目为%d" % (len(negative_info)))
-
-        # 将independent_info_gdc_matched中的单个records解析为dataframe形式保存
-        def split_record(record):
-            alt = record.split('>')[1]
-            ref = record.split('>')[0][-1]
-            chro = record.split(':')[0][0:3].lower() + record.split(':')[0][3:]
-            loc = record.split(':')[1].split('.')[1].split('>')[0][:-1]
-            return ([chro, loc, ref, alt])
-
-        independent_info_gdc_matched_splitted = pd.DataFrame([split_record(single_record) for single_record in independent_info_gdc_matched['submittedDNA Change']], columns = ["Chromosome", "Start_Position", "Reference_Allele", "Tumor_Allele1"])
-        independent_info_gdc_matched_splitted.Start_Position = independent_info_gdc_matched_splitted.Start_Position.astype("int64") # 列格式转换
-
-        print("独立验证数据集中，经GDC数据库认定为matched的突变集数目为%d" % (len(independent_info_gdc_matched_splitted)))
-
-        # print("positive_info的对应类型为：",
-        #       [type(positive_info[col][4]) for col in positive_info.columns])
-        # print("gdc_unmatched_info_splitted的对应类型为：", [type(gdc_unmatched_info_splitted[col][1]) for col in gdc_unmatched_info_splitted.columns])
-
-        # 取交集，获取预测阴性位点中位于gdc数据库中的所有位点信息，注意需要进一步去重（negative_info_gdc_matched中存在重复信息）
-        negative_info_gdc_matched = pd.merge(negative_info, independent_info_gdc_matched_splitted, on=list(independent_info_gdc_matched_splitted.columns))
-        negative_info_gdc_matched.drop_duplicates(keep='first', inplace=True)
-        print("预测为阴性的位点中，位于gdc数据库中的位点数目为%d" % (len(negative_info_gdc_matched)))
-        # 取差集(从negative_info中过滤negative_info在negative_info_gdc_matched中存在的行)，获取预测阴性位点中不在gdc数据库中的所有位点信息：
-        temp_info = negative_info.append(independent_info_gdc_matched_splitted, ignore_index=True)
-        negative_info_gdc_unmatched = temp_info.drop_duplicates(subset=negative_info.columns, keep=False)
-        print("预测为阴性的位点中，不位于gdc数据库中的位点数目为%d" % (len(negative_info_gdc_unmatched)))
-
-        return((negative_info_gdc_matched, negative_info_gdc_unmatched))
-
 # 判别符合中心法则的RNA突变（TP）、不符合中心法则的RNA突变（TN）
 # 分别归类为0、1（与Mutect2重叠与否）
 # 删除位于RNA编辑位点数据库内的相应突变，并将其单独归类，应用剩余位点来构建TP_info、TN_info
@@ -776,114 +695,13 @@ class tool_set(object):
 class exon_RNA_alaysis_newer(object):
 
     # 初始化类实例
-    # all_info为输入的所有突变数据集的dataframe
+    # train_info为输入的训练数据集的dataframe
     # GDC_info为对应癌症项目的GDC突变数据集的dataframe
     # WES_info为对应癌症项目的Mutect2 WES突变数据集的dataframe
     # RNA_edit_info为REDIportal数据库中RNA编辑位点数据集的dataframe
     # 输出：实例自带的all_info_TP和all_info_TN
-    def __init__(self, all_info, GDC_info, WES_info, RNA_edit_info):
-        self.all_info = all_info
-        self.GDC_info = GDC_info
-        self.WES_info = WES_info
-        self.RNA_edit_info = RNA_edit_info
-
-        # 开始对所有RNA突变进行筛选，筛选掉基本无法处理&没必要处理的multiallelic位点——self.all_info
-        print(f"所有RNA突变在进行multi-allelic筛选前，对应的突变数目为{len(self.all_info)}")
-        self.all_info = self.all_info[self.all_info['record_filter'].apply(lambda x: False if x.__contains__("multiallelic") else True)]
-        print(f"所有RNA突变在经过multi-allelic筛选后，剩余的突变数目为{len(self.all_info)}")
-
-        print("="*100)
-
-        # 进一步对RNA编辑位点数据库进行分析，判断其是否位于数据库内
-        ## 找出位于RNA编辑数据库中的相应RNA突变位点——保存于self.all_info_RNA_edit中
-        self.all_info_RNA_edit = pd.merge(self.all_info, self.RNA_edit_info)
-        self.all_info = self.all_info.append(self.all_info_RNA_edit)
-        self.all_info = self.all_info.drop_duplicates(keep=False)
-
-        print(f"位于RNA编辑位点上的突变数为{len(self.all_info_RNA_edit)}（对象名称为all_info_RNA_edit），"
-              f"不属于RNA编辑位点的突变数为{len(self.all_info)}")
-
-        print("="*100)
-
-        # 进一步排除位于免疫球蛋白基因内突变
-        self.all_info_immunoglobulin = self.all_info[self.all_info.apply(lambda x: True if x['Hugo_Symbol'].startswith(("IGH", 'IGK', 'IGL')) else False, axis=1)]
-        self.all_info = self.all_info[self.all_info.apply(lambda x: False if x['Hugo_Symbol'].startswith(("IGH", 'IGK', 'IGL')) else True, axis=1)]
-
-        print(f"位于免疫球蛋白基因内的突变数为{len(self.all_info_immunoglobulin)}（对象名称为all_info_immunoglobulin），"
-              f"不位于免疫球蛋白基因内的突变数为{len(self.all_info)}")
-
-        print("="*100)
-
-        # 进一步排除HLA基因内突变
-        self.all_info_HLA = self.all_info[self.all_info.apply(lambda x: True if x['Hugo_Symbol'].startswith("HLA") else False, axis=1)]
-        self.all_info = self.all_info[self.all_info.apply(lambda x: False if x['Hugo_Symbol'].startswith("HLA") else True, axis=1)]
-
-        print(f"位于HLA基因内的突变数为{len(self.all_info_HLA)}（对象名称为all_info_HLA），"
-              f"不位于HLA基因内的突变数为{len(self.all_info)}")
-
-        print("="*100)
-
-        # 开始预备TP_info, TN_info, Ambiguity_info获取工作
-        ## 整理GDC相应信息
-        print("GDC项目中的突变位点情况为：\n", self.GDC_info["Variant_Type"].value_counts())
-        ### 仅选择SNP突变信息进行分析
-        self.GDC_SNP_info = self.GDC_info[self.GDC_info['Variant_Type'] == "SNP"]
-        ### 重新编制index信息
-        self.GDC_SNP_info.reset_index(drop=True, inplace=True)
-        ### 将“Tumor_Sample_UUID”列中信息进行切片&提取，使之与RNA体细胞突变中的case_id信息保持一致
-        del self.GDC_SNP_info['Tumor_Sample_UUID']
-        self.GDC_SNP_info["Tumor_Sample_UUID"] = pd.Series(["-".join(GDC_sample_info.split("-")[0:3])
-                                                            for GDC_sample_info in self.GDC_SNP_info["Tumor_Sample_Barcode"]])
-        ### 仅选取染色体、碱基和case_id信息来进行合并
-        self.GDC_SNP_info = self.GDC_SNP_info.loc[:, ["Chromosome", "Start_Position", "Tumor_Seq_Allele1", "Tumor_Seq_Allele2", "Tumor_Sample_UUID"]]
-        ### 重新命名，便于进行合并(Tumor_Allele1对应突变碱基、Tumor_Allele2对应参考碱基)
-        self.GDC_SNP_info.columns = ["Chromosome", "Start_Position", "Tumor_Allele2", "Tumor_Allele1", "Tumor_Sample_UUID"]
-        ### GDC突变去重（由于多个肿瘤样本数据随机组合的缘故，体细胞突变会存在重复），在LUAD项目中，去重前后比例为3:1
-        self.GDC_SNP_info = self.GDC_SNP_info.drop_duplicates(keep="first")
-        print(f"整理后，GDC项目中的突变数目共计{len(self.GDC_SNP_info)}")
-
-        ## 整理Mutect2的WES突变相应信息
-        print(f"对于WES，Mutect2突变数目共计{len(self.WES_info)}")
-        print(f"开始分析GDC项目中突变和Mutect2中WES突变......")
-        self.GDC_SNP_WES_info = pd.merge(self.GDC_SNP_info, self.WES_info)
-        print(f"经过求交集后，最终GDC、Mutect2共同具有的突变数目为{len(self.GDC_SNP_WES_info)}（对象名称为GDC_SNP_WES_info）")
-        WES_info_temp = self.WES_info.append(self.GDC_SNP_WES_info)
-        self.WES_info_GDC_trimmed = WES_info_temp.drop_duplicates(keep=False)
-        print(f"经过求差集后，最终仅在Mutect2具有的突变数目为{len(self.WES_info_GDC_trimmed)}（对象名称为WES_info_GDC_trimmed）")
-
-        print("="*100)
-
-        print(f"开始将all_info分为TP_info, TN_info, Ambiguity_info三类，初始数目为{len(self.all_info)}")
-        # 首先获取符合GDC数据集内case_specific突变信息的RNA体细胞突变——self.TP_info
-        self.TP_info = pd.merge(self.all_info, self.GDC_SNP_info, on=list(self.GDC_SNP_info.columns))
-        self.all_info = self.all_info.append(self.TP_info)
-        self.all_info = self.all_info.drop_duplicates(keep=False)
-        print(f"TP_info类获取完成，数目为{len(self.TP_info)}（对象名称为TP_info）")
-
-        # self.TP_info_low_exp = self.TP_info.loc[self.TP_info['DP_tumor'] <= 10, ]
-        # self.TP_info = self.TP_info.loc[self.TP_info['DP_tumor'] > 10,]
-        # print(f"TP_info类中低表达量部分和正常表达量部分获取完成，数目分别为{len(self.TP_info_low_exp)}（对象名称为TP_info_low_exp）和{len(self.TP_info)}（对象名称为TP_info）")
-
-        # 接下来获取与Mutect2 WES数据集重叠的RNA体细胞突变——self.Ambiguity_info_Mutect2
-        self.Ambiguity_info_Mutect2 = pd.merge(self.all_info, self.WES_info_GDC_trimmed, on=list(self.WES_info_GDC_trimmed.columns))
-        self.TN_info = self.all_info.append(self.Ambiguity_info_Mutect2)
-        self.TN_info = self.TN_info.drop_duplicates(keep=False)
-        print(f"Ambiguity_info类中Mutect2部分获取完成，数目为{len(self.Ambiguity_info_Mutect2)}（对象名称为Ambiguity_info_Mutect2）")
-        print(f"TN_info类获取完成，数目为{len(self.TN_info)}（对象名称为TN_info）")
-
-        # self.Ambiguity_info_Mutect2_low_exp = self.Ambiguity_info_Mutect2.loc[self.Ambiguity_info_Mutect2['DP_tumor'] <= 10, ]
-        # self.Ambiguity_info_Mutect2 = self.Ambiguity_info_Mutect2.loc[self.Ambiguity_info_Mutect2['DP_tumor'] > 10,]
-        # print(f"Ambiguity_info_Mutect2类中低表达量部分和正常表达量部分获取完成，数目分别为{len(self.Ambiguity_info_Mutect2_low_exp)}（对象名称为Ambiguity_info_Mutect2_low_exp）和{len(self.Ambiguity_info_Mutect2)}（对象名称为Ambiguity_info_Mutect2）")
-        # self.TN_info_low_exp = self.TN_info.loc[self.TN_info['DP_tumor'] <= 10, ]
-        # self.TN_info = self.TN_info.loc[self.TN_info['DP_tumor'] > 10,]
-        # print(f"TN_info类中低表达量部分和正常表达量部分获取完成，数目分别为{len(self.TN_info_low_exp)}（对象名称为TN_info_low_exp）和{len(self.TN_info)}（对象名称为TN_info）")
-
-        # 再接下来获取与GDC PoT数据集重叠的RNA体细胞突变——self.Ambiguity_info_GDC
-        ## 2021.5.16：删除GDC中case_id信息，并进一步构建PoT集
-        # del self.GDC_SNP_info['Tumor_Sample_UUID']
-        # self.GDC_SNP_info = self.GDC_SNP_info.drop_duplicates(keep="first")
-        # ## 开始合并
-        # self.Ambiguity_info_GDC = pd.merge(self.all_info, self.GDC_SNP_info, on=list(self.GDC_SNP_info.columns))
+    def __init__(self, train_info):
+        self.train_info = train_info
 
     # 检查训练数据TP、TN相关信息
     # 输入：实例自带的TP_info和TN_info
@@ -1552,21 +1370,6 @@ class exon_RNA_alaysis_newer(object):
     def common_RF_interpret(self):
         explainer = lime.lime_tabular.LimeTabularExplainer(self.X_train, feature_names=self.X_train.columns, class_names=self.y_train, discretize_continuous=True)
 
-# 判别符合中心法则的RNA突变（TP）、不符合中心法则的RNA突变（TN）
-# 分别归类为0、1（与Mutect2重叠与否）
-# 删除位于RNA编辑位点数据库内的相应突变，并将其单独归类，应用剩余位点来构建TP_info、TN_info
-# 新建模型构建类，包括数据预处理、数据概览、模型构建、模型评估等方法
-# 去除标准化过程
-# 2021.5.15 添加WES相关突变信息进入TP数据集内
-# 2021.5.16 考虑将GDC突变和WES突变的并集，均作为PoT集来纳入模型数据当中
-# 2021.5.17 考虑将RNA突变分为3类：TP、TN和Ambiguity，同时删除免疫球蛋白和HLA区间
-# 2021.5.18 考虑将突变集获取顺序从Ambiguity_info-TP_info-TN_info，修改为TP_info-Ambiguity_info-TN_info，亦即优先选择有GDC PoT证据支持的位点（TP），再选出不符合GDC但符合Mutect2数据的位点（Ambiguity）
-# 2021.5.19 考虑将突变集获取顺序从TP_info-Ambiguity_info-TN_info，进一步优化为Ambiguity包含两类（WES中非GDC部分，GDC PoT部分）
-# 2021.5.19 考虑再三还是将PoT概念去除（难以对其进行说明且negative太多），最后仅保留TP_info、Ambiguity_Mutect2和TN_info
-# 2021.5.20 开始调参
-# 2021.5.24 删除低测序深度RNA突变位点（DP_tumor ≤ 10），避免低表达量RNA突变位点影响结果
-# 2021.5.28 开展独立验证集中的独立测试
-class exon_RNA_alaysis_newer_independent(object):
 
     # 初始化类实例
     # all_info为输入的所有突变数据集的dataframe
