@@ -111,8 +111,6 @@ class train_data_construct(object):
         ## 将相应列（疑似为分类变量）转为one-hot变量，并纳入模型中进行判别
         ### 获取碱基改变情况信息
         TP_info_allele_change = self.TP_info['Reference_Allele'] + '>' + self.TP_info['Tumor_Allele1']
-        #### 2021.5.16——修改突变碱基改变信息
-        TP_info_allele_change = pd.Series([ALLELE_CHANGE_DICT[allele_change] if ALLELE_CHANGE_DICT.keys().__contains__(allele_change) else allele_change for allele_change in TP_info_allele_change])
 
         self.enc = preprocessing.OneHotEncoder()  # 尝试将碱基改变情况转为one-hot变量，并纳入模型中进行判别
         self.enc.fit(TP_info_allele_change.values.reshape(-1, 1))  # 根据TP中碱基改变情况分布，构建one-hot变量

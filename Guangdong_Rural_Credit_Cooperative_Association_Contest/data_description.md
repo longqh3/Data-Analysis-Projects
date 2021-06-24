@@ -48,9 +48,11 @@ We had 339 variables in total. Of which (take **first** record to demonstrate st
     * index 0-4: **only** 17279 rows contained values (7 to 608 classes)
     * index 5-8: **only** 14007 rows contained values (7 to 1517 classes)
     * index 9: **229022** rows contained values (3 classes)
+        * *0 class* was majority, **no need** to dumminize it. 
 * 59-166, 315-330: channel transaction status. (**all null** values detected, small portion to be zeros)
     * Part1---channel_trans_status_a
         * **229022** & **784000** & **229318** rows contained values (3 to 3033 classes)
+            * For columns with 3 classes, we can try to dumminize them.
         * 229022 & 784000 rows were majority
     * Part2---channel_trans_status_b
         * index 0-6: **only** 144 rows contained values (1 classes)
