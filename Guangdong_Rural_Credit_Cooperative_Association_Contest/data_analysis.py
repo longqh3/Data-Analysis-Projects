@@ -8,21 +8,19 @@ import pandas as pd     #导入python的一个数据分析包pandas
 ## 模型包
 from sklearn import decomposition    #导入数据降维包decomposition，以便后面导入PCA包
 from sklearn.ensemble import RandomForestClassifier  # 导入随机森林算法
-from imblearn.ensemble import BalancedRandomForestClassifier # 导入平衡随机森林算法
 ## 模型相关包——数据预处理
 from sklearn import preprocessing  # 导入数据预处理包
 from sklearn.model_selection import train_test_split  # 导入训练集和测试集划分函数tain_test_split
 from sklearn.preprocessing import StandardScaler  # 导入数据标准化函数
-from imblearn.under_sampling import RandomUnderSampler # 欠抽样处理库RandomUnderSampler
 ## 模型相关包——导入模型训练相关优化函数
 from sklearn.model_selection import StratifiedKFold     #导入将数据划分函数StratifiedKFold
 from sklearn.model_selection import GridSearchCV    #导入网格搜索自动调参函数GridSearchCV
 ## 模型相关包——模型评估
 from sklearn.metrics import *    #导入metrics模块的所有函数，metrics模块实现了一些函数，用来评估预测误差。已使用：precision_recall_curve
 # 绘图包
-import scikitplot as skplt # 绘制模型P-R曲线
 import matplotlib.pyplot as plt    #导入Python可视化Matplotlib模块的绘图pyplot函数
 import seaborn as sns    #导入Python数据可视化matplotlib模块扩展版seaborn模型
+import scikitplot as skplt # 绘制模型P-R曲线
 
 # 导入其他模型包
 import xgboost as xgb
@@ -228,7 +226,7 @@ class data_train_test_process(object):
     # 应用目前效果最好的模型进行测试
     # 输入：经过网格搜索获取最佳参数所对应的xgboost模型xgb_gcv
     # 输入2：实例新建的test_data，为添加分类信息对应哑变量后的测试数据
-    # 输出：实例新建的test_pred_PR_thre\test_pred_PR_thre_2，为独立测试数据集根据不同阈值所得到的预测结果
+    # 输出：实例新建的test_pred_PR_thre、test_pred_PR_thre_2，为独立测试数据集根据不同阈值所得到的预测结果
     # 输出2：实例新建的属性test_positive_PR_thre、test_positive_PR_thre_2，为独立测试数据集根据不同阈值所得到的阳性数据集（negative为阴性数据集）
     def model_utilze(self):
         # 数据概览
@@ -244,8 +242,8 @@ class data_train_test_process(object):
         self.test_pred_PR_thre = (test_pred[:, 1] >= self.common_xgb_PR_thre).astype('int')
         # 获取预测阳性、阴性的结果，报告并导出
         self.test_positive_PR_thre = self.test_data[self.test_pred_PR_thre == 1]
-        self.test_negative_PR_thre = self.test_data[test_pred_PR_thre == 0]
-        print("总SNP数目为%d，其中通过模型判别为阳性的突变位点数目为%d，占比为1:%d" % (
+        self.test_negative_PR_thre = self.test_data[self.test_pred_PR_thre == 0]
+        print("总SNP数目为%d，其中通过模型判别为阳性的个案数目为%d，占比为1:%d" % (
         len(self.test_data), len(self.test_positive_PR_thre), len(self.test_data) / len(self.test_positive_PR_thre)))
 
         # 根据PR曲线相应阈值二完成预测
@@ -254,7 +252,7 @@ class data_train_test_process(object):
         # 获取预测阳性、阴性的结果，报告并导出
         self.test_positive_PR_thre_2 = self.test_data[self.test_pred_PR_thre_2 == 1]
         self.test_negative_PR_thre_2 = self.test_data[self.test_pred_PR_thre_2 == 0]
-        print("总SNP数目为%d，其中通过模型判别为阳性的突变位点数目为%d，占比为1:%d" % (
+        print("总SNP数目为%d，其中通过模型判别为阳性的个案数目为%d，占比为1:%d" % (
             len(self.test_data), len(self.test_positive_PR_thre_2),
             len(self.test_data) / len(self.test_positive_PR_thre_2)))
 
