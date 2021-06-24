@@ -31,14 +31,14 @@ class tool_functions(object):
     # start_column_num, end_column_num are numbers of corresponding columns (1-based, start&end included)
     def columns_rename(column_names, start_column_num, end_column_num, suffix):
         # directly rename corresponding column names
-        for i in range(start_column_num-1, end_column_num):
+        for i in range(start_column_num-2, end_column_num-1):
             column_names[i] = "_".join([suffix, str(i - start_column_num + 1)])
     # rename_info_dict is a dict whose key was suffix and values were other info
     def batch_columns_rename(column_names, rename_info_dict):
         for suffix in rename_info_dict.keys():
             start_column_num, end_column_num = rename_info_dict[suffix]
             # start_column_num, end_column_num are numbers of corresponding columns (1-based, start&end included)
-            for i in range(start_column_num-1, end_column_num):
+            for i in range(start_column_num-2, end_column_num-1):
                 column_names[i] = "_".join([suffix, str(i - start_column_num + 1)])
     # 检查不同信息对应大类中各个变量的value_counts分类情况
     def info_class_features_split_check(train_info, class_suffix):
@@ -59,6 +59,7 @@ class data_train_test_process(object):
 
     # 输入：实例自带的train_info
     # 输出：实例新建的train_info，为重新构建列名后的训练数据
+    # 输出2：实例新建的test_info，为重新构建列名后的测试数据
     def data_rename(self):
         # 对训练数据进行整理，重新构建列名
         old_columns = self.train_info.columns
@@ -92,7 +93,7 @@ class data_train_test_process(object):
         # 对测试数据进行整理，重新构建列名
         old_columns = self.test_info.columns
         new_columns = list(self.test_info.columns)
-        ## test_info只是在train_info的基础上少了一列(flag)，全部减1即可
+        ## test_info只是在train_info的基础上少了一列(flag)，再全部减1即可
         for key in rename_info_dict.keys():
             rename_info_dict[key] = [single_index - 1 for single_index in rename_info_dict[key]]
         tool_functions.batch_columns_rename(new_columns, rename_info_dict)
@@ -115,20 +116,30 @@ class data_train_test_process(object):
     # 输入：实例自带的train_info
     # 输出：实例新建的training_data、y，为添加分类信息对应哑变量后的训练数据、训练标签
     # 输出2：实例新建的X_train、X_holdout、y_train、y_holdout，为实例的训练/测试数据集
+    # 输出3：实例新建的test_data，为添加分类信息对应哑变量后的测试数据
     def data_preprocess(self):
         # 删除分类变量所对应列后的training_data + 构建训练标签y
-        ## other_sigs_7列为日期信息，无实意，删除
-        self.training_data = self.train_info.drop(['flag', 'sex', 'marriage_satatus', 'occupation', 'educate', 'other_sigs_7'], axis=1)
+        ## settime列为日期信息，无实意，删除
+        self.training_data = self.train_info.drop(['flag', 'sex', 'marriage_satatus', 'occupation', 'educate', 'settime'], axis=1)
         self.y = self.train_info['flag']
         # 将相应列（必然为分类变量）转为one-hot变量，并纳入训练数据training_data中
         categorical_variable_list = ['sex', 'marriage_satatus', 'occupation', 'educate']
         categorical_variable_dataframe_list = []
         for categorical_variable in categorical_variable_list:
-            categorical_variable_dataframe_list.append(pd.get_dummies(train_data_construction.train_info[categorical_variable], prefix=categorical_variable))
+            categorical_variable_dataframe_list.append(pd.get_dummies(self.train_info[categorical_variable], prefix=categorical_variable))
         self.training_data = pd.concat([self.training_data] + categorical_variable_dataframe_list, axis=1)
         # 划分训练/测试数据集——7/3
         self.X_train, self.X_holdout, self.y_train, self.y_holdout = train_test_split(self.training_data, self.y, test_size=0.3, random_state=17)
     
+        # 构建（整理）测试数据test_data
+        self.test_data = self.test_info.drop(['sex', 'marriage_satatus', 'occupation', 'educate', 'settime'], axis=1)
+        # 将相应列（必然为分类变量）转为one-hot变量，并纳入训练数据training_data中
+        categorical_variable_list = ['sex', 'marriage_satatus', 'occupation', 'educate']
+        categorical_variable_dataframe_list = []
+        for categorical_variable in categorical_variable_list:
+            categorical_variable_dataframe_list.append(pd.get_dummies(self.test_info[categorical_variable], prefix=categorical_variable))
+        self.test_data = pd.concat([self.test_data] + categorical_variable_dataframe_list, axis=1)
+
     # 输入：实例新建的X_train、X_holdout、y_train、y_holdout，为实例的训练/测试数据集
     # 输出：经过网格搜索获取最佳参数所对应的xgboost模型xgb_gcv
     def model_training(self):
@@ -214,9 +225,38 @@ class data_train_test_process(object):
         print("Precision Score (how much of TPs, which were predicted as 'TP', were actually 'TP'): ",
             precision_score(self.y_holdout, self.xgb_predicted))  # 打印精度
     
+    # 应用目前效果最好的模型进行测试
     # 输入：经过网格搜索获取最佳参数所对应的xgboost模型xgb_gcv
-    # 输入2：
+    # 输入2：实例新建的test_data，为添加分类信息对应哑变量后的测试数据
+    # 输出：实例新建的test_pred_PR_thre\test_pred_PR_thre_2，为独立测试数据集根据不同阈值所得到的预测结果
+    # 输出2：实例新建的属性test_positive_PR_thre、test_positive_PR_thre_2，为独立测试数据集根据不同阈值所得到的阳性数据集（negative为阴性数据集）
     def model_utilze(self):
+        # 数据概览
+        # 检验测试集概率分布情况
+        print("\n独立测试数据集概率分布情况如下所示：")
+        test_pred = self.xgb_gcv.predict_proba(self.test_data)  # 概率形式预测测试集的类别
+        plt.hist(test_pred[:, 1])
+
+        print("测试数据集行数为%d" % (len(self.test_data)))
+        # 数据预测
+        # 根据PR曲线相应阈值一完成预测
+        print("\n根据PR曲线相应阈值一(%f)完成预测"%(self.common_xgb_PR_thre))
+        self.test_pred_PR_thre = (test_pred[:, 1] >= self.common_xgb_PR_thre).astype('int')
+        # 获取预测阳性、阴性的结果，报告并导出
+        self.test_positive_PR_thre = self.test_data[self.test_pred_PR_thre == 1]
+        self.test_negative_PR_thre = self.test_data[test_pred_PR_thre == 0]
+        print("总SNP数目为%d，其中通过模型判别为阳性的突变位点数目为%d，占比为1:%d" % (
+        len(self.test_data), len(self.test_positive_PR_thre), len(self.test_data) / len(self.test_positive_PR_thre)))
+
+        # 根据PR曲线相应阈值二完成预测
+        print("\n根据PR曲线相应阈值二(%f)完成预测"%(self.common_xgb_PR_thre_2))
+        self.test_pred_PR_thre_2 = (test_pred[:, 1] >= self.common_xgb_PR_thre_2).astype('int')
+        # 获取预测阳性、阴性的结果，报告并导出
+        self.test_positive_PR_thre_2 = self.test_data[self.test_pred_PR_thre_2 == 1]
+        self.test_negative_PR_thre_2 = self.test_data[self.test_pred_PR_thre_2 == 0]
+        print("总SNP数目为%d，其中通过模型判别为阳性的突变位点数目为%d，占比为1:%d" % (
+            len(self.test_data), len(self.test_positive_PR_thre_2),
+            len(self.test_data) / len(self.test_positive_PR_thre_2)))
 
 
 
