@@ -59,9 +59,11 @@ class data_train_test_process(object):
     # 初始化类实例
     # train_info为输入的训练数据对应dataframe
     # test_info为输入的测试数据对应dataframe
-    def __init__(self, train_info, test_info):
+    # test_label为输入的测试数据对应label
+    def __init__(self, train_info, test_info, test_label):
         self.train_info = train_info
         self.test_info = test_info
+        self.test_label = test_label
 
     # 输入：实例自带的train_info、test_info
     # 输出：实例修改的train_info，为重新构建列名后的训练数据
@@ -131,12 +133,17 @@ class data_train_test_process(object):
         # 对于age列（除服从正态分布且占比最大的1-116，其他均归赋值为0，因其占比异常大）
         self.train_info['age'] = self.train_info.age.map(lambda x: x if range(1, 117).__contains__(x) else 0)
         self.test_info['age'] = self.test_info.age.map(lambda x: x if range(1, 117).__contains__(x) else 0)
+        # 注意暂不对occupation列进行修改
         # 对于occupation列（仅保留占比最大的-1-23，其他均归赋值为0，因其占比异常大）
-        self.train_info['occupation'] = self.train_info.occupation.map(lambda x: x if range(-1, 24).__contains__(x) else 0)
-        self.test_info['occupation'] = self.test_info.occupation.map(lambda x: x if range(-1, 24).__contains__(x) else 0)
+        ## 获取occupation中占比少于1%的类，并将其重新赋值
+        occupation_little_class = [class_name for class_name in self.train_info.occupation.value_counts().index if self.train_info.occupation.value_counts()[class_name] > len(self.train_info)*0.01]
+        self.train_info['occupation'] = self.train_info.occupation.map(lambda x: x if occupation_little_class.__contains__(x) else 0)
+        self.test_info['occupation'] = self.test_info.occupation.map(lambda x: x if occupation_little_class.__contains__(x) else 0)
         # 对于educate列（仅保留占比最大的-1、4、9，其他均归赋值为0，因其占比异常大）
-        self.train_info['educate'] = self.train_info.educate.map(lambda x: x if [-1, 4, 9].__contains__(x) else 0)
-        self.test_info['educate'] = self.test_info.educate.map(lambda x: x if [-1, 4, 9].__contains__(x) else 0)
+        ## 获取educate中占比少于1%的类，并将其重新赋值
+        educate_little_class = [class_name for class_name in self.train_info.educate.value_counts().index if self.train_info.educate.value_counts()[class_name] > len(self.train_info)*0.01]
+        self.train_info['educate'] = self.train_info.educate.map(lambda x: x if educate_little_class.__contains__(x) else 0)
+        self.test_info['educate'] = self.test_info.educate.map(lambda x: x if educate_little_class.__contains__(x) else 0)
 
     # 输入：实例修改的train_info、test_info
     # 输出：实例修改的train_info、test_info
@@ -159,8 +166,7 @@ class data_train_test_process(object):
 
     # 输入：实例修改的train_info、test_info
     # 输出：实例新建的training_data、y，为添加分类信息对应哑变量后的训练数据、训练标签
-    # 输出2：实例新建的X_train、X_holdout、y_train、y_holdout，为实例的训练/测试数据集
-    # 输出3：实例新建的test_data，为添加分类信息对应哑变量后的测试数据
+    # 输出2：实例新建的test_data，为添加分类信息对应哑变量后的测试数据
     def data_preprocess(self):
         # 删除分类变量所对应列后的training_data + 构建训练标签y
         ## settime列为日期信息，无实意，删除
@@ -172,8 +178,6 @@ class data_train_test_process(object):
         for categorical_variable in categorical_variable_list:
             categorical_variable_dataframe_list.append(pd.get_dummies(self.train_info[categorical_variable], prefix=categorical_variable))
         self.training_data = pd.concat([self.training_data] + categorical_variable_dataframe_list, axis=1)
-        # 划分训练/测试数据集——7/3
-        self.X_train, self.X_holdout, self.y_train, self.y_holdout = train_test_split(self.training_data, self.y, test_size=0.3, random_state=17)
     
         # 构建（整理）测试数据test_data
         self.test_data = self.test_info.drop(['sex', 'marriage_satatus', 'occupation', 'educate', 'settime'], axis=1)
@@ -215,8 +219,8 @@ class data_train_test_process(object):
         print("开始进行网格搜索......")
         print("目标参数为：")
         print(parameters)
-        self.xgb_gcv = GridSearchCV(model, parameters, cv=skf, scoring='f1', verbose=1, n_jobs=18) # 并行进行12个进程
-        self.xgb_gcv.fit(self.X_train,self. y_train)
+        self.xgb_gcv = GridSearchCV(model, parameters, cv=skf, scoring='f1', verbose=1, n_jobs=20) # 并行进行12个进程
+        self.xgb_gcv.fit(self.training_data,self.y)
         print(self.xgb_gcv.best_params_)  ##网格搜索后的最优参数
 
         # 网格搜索结束
@@ -225,25 +229,25 @@ class data_train_test_process(object):
         print((self.xgb_gcv.best_params_, self.xgb_gcv.best_score_))
 
         # 模型初步评估
-        self.xgb_pred = self.xgb_gcv.predict(self.X_holdout)  # 预测测试集的类别
+        self.xgb_pred = self.xgb_gcv.predict(self.test_data)  # 预测测试集的类别
         print("\n不调整阈值，对测试集的预测得分如下所示：")
         print("Accuracy Score : (how much of variants type was predicted correctly) :",
-            accuracy_score(self.y_holdout, self.xgb_pred))  # 打印准确度
-        print("Recall Score (how much of TP were predicted correctly) : ", recall_score(self.y_holdout, self.xgb_pred))  # 打印召回率
-        print("Precision Score (how much of TPs, which were predicted as 'TP', were actually 'TP'): ", precision_score(self.y_holdout, self.xgb_pred))  # 打印精度
+            accuracy_score(self.test_label, self.xgb_pred))  # 打印准确度
+        print("Recall Score (how much of TP were predicted correctly) : ", recall_score(self.test_label, self.xgb_pred))  # 打印召回率
+        print("Precision Score (how much of TPs, which were predicted as 'TP', were actually 'TP'): ", precision_score(self.test_label, self.xgb_pred))  # 打印精度
     
     # 输入：经过网格搜索获取最佳参数所对应的xgboost模型xgb_gcv
-    # 输入2：实例新建的X_train、X_holdout、y_train、y_holdout，为实例的训练/测试数据集
+    # 输入2：实例新建的test_data、test_label，为实例的测试数据集和label信息
     # 输出：实例新建的common_xgb_PR_thre、common_xgb_PR_thre_2，分别为通过F1值和PR曲线最高点所对应判别阈值
     def model_tuning(self):
         # 应用PR曲线进行优化
         print("\n应用PR曲线完成对xgboost梯度提升树的优化")
         # 首先检验测试集概率分布情况
-        self.xgb_pred = self.xgb_gcv.predict_proba(self.X_holdout)  # 以概率形式预测测试集的类别
+        self.xgb_pred = self.xgb_gcv.predict_proba(self.test_data)  # 以概率形式预测测试集的类别
         plt.hist(self.xgb_pred[:, 1])
         # 绘制模型PR曲线，得到PR曲线所对应的最优界值（使F1最大的阈值，相对比较合理）
-        skplt.metrics.plot_precision_recall_curve(self.y_holdout, self.xgb_pred)
-        precisions, recalls, thresholds = precision_recall_curve(self.y_holdout, self.xgb_pred[:, 1])
+        skplt.metrics.plot_precision_recall_curve(self.test_label, self.xgb_pred)
+        precisions, recalls, thresholds = precision_recall_curve(self.test_label, self.xgb_pred[:, 1])
         print("模型对应PR曲线下面积为", auc(recalls, precisions))
         optimal_idx = np.argmax((2 * precisions * recalls) / (precisions + recalls))
         self.common_xgb_PR_thre = thresholds[optimal_idx]
@@ -261,13 +265,25 @@ class data_train_test_process(object):
         self.xgb_predicted = (self.xgb_pred[:, 1] >= self.common_xgb_PR_thre).astype('int')
 
         print("Accuracy Score : (how much of variants type was predicted correctly) :",
-            accuracy_score(self.y_holdout, self.xgb_predicted))  # 打印准确度
+            accuracy_score(self.test_label, self.xgb_predicted))  # 打印准确度
         print("Recall Score (how much of TP were predicted correctly) : ",
-            recall_score(self.y_holdout, self.xgb_predicted))  # 打印召回率
+            recall_score(self.test_label, self.xgb_predicted))  # 打印召回率
         print("F1 Score (composite metric for precision and recall): ",
-            f1_score(self.y_holdout, self.xgb_predicted))  # 打印精度
+            f1_score(self.test_label, self.xgb_predicted))  # 打印精度
         print("Precision Score (how much of TPs, which were predicted as 'TP', were actually 'TP'): ",
-            precision_score(self.y_holdout, self.xgb_predicted))  # 打印精度
+            precision_score(self.test_label, self.xgb_predicted))  # 打印精度
+
+        print("\n应用PR曲线阈值二来完成测试集评估：")
+        self.xgb_predicted = (self.xgb_pred[:, 1] >= self.common_xgb_PR_thre_2).astype('int')
+
+        print("Accuracy Score : (how much of variants type was predicted correctly) :",
+            accuracy_score(self.test_label, self.xgb_predicted))  # 打印准确度
+        print("Recall Score (how much of TP were predicted correctly) : ",
+            recall_score(self.test_label, self.xgb_predicted))  # 打印召回率
+        print("F1 Score (composite metric for precision and recall): ",
+            f1_score(self.test_label, self.xgb_predicted))  # 打印精度
+        print("Precision Score (how much of TPs, which were predicted as 'TP', were actually 'TP'): ",
+            precision_score(self.test_label, self.xgb_predicted))  # 打印精度
     
     # 应用目前效果最好的模型进行测试
     # 输入：经过网格搜索获取最佳参数所对应的xgboost模型xgb_gcv
